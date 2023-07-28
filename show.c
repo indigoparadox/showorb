@@ -15,6 +15,8 @@
 #define MQTT_ITEM_SZ 255
 #define SUB_TOPIC_SZ 255
 #define SUB_TOPICS_COUNT 63
+#define DISPLAY_STR_SZ 255
+#define CONFIG_PATH_SZ 255
 
 #define BUF_TYPE_STR 0
 #define BUF_TYPE_INT 1
@@ -30,14 +32,16 @@
 
 #define ff_num( buf, j ) while( '-' != buf[j] && '+' != buf[j] && '*' != buf[j] && '/' != buf[j] && '\0' != buf[j] ) { debug_printf_1( "macro iter: %c (%d)\n", buf[j], j ); j++; } j--;
 
-int ser_fd = -1;
-size_t sub_count = 0;
+int g_ser_fd = -1;
+size_t g_sub_count = 0;
+char g_sub_topics[SUB_TOPICS_COUNT][SUB_TOPIC_SZ + 1];
+float g_sub_vals[SUB_TOPICS_COUNT];
 
-char sub_topics[SUB_TOPICS_COUNT][SUB_TOPIC_SZ + 1];
-float sub_vals[SUB_TOPICS_COUNT];
+char display_str[DISPLAY_STR_SZ];
+char g_cfg_path[CONFIG_PATH_SZ] = "show.conf";
 
 #define write_check( str, sz ) \
-   if( sz != write( ser_fd, str, sz ) ) { \
+   if( sz != write( g_ser_fd, str, sz ) ) { \
       error_printf( "error writing to serial port!\n" ); \
       retval = 1; \
       goto cleanup; \
@@ -122,9 +126,13 @@ cleanup:
 
 int update_lcd() {
    char lcd_str[LCD_STR_SZ + 1];
-   int retval = 0;
+   int retval = 0,
+      in_token = 0;
    time_t now = 0;
    struct tm* now_info = NULL;
+   size_t i = 0,
+      j = 0,
+      k = 0;
 
    time( &now );
    now_info = localtime( &now );
@@ -139,10 +147,45 @@ int update_lcd() {
    write_check( "\xfe\x58", 2 );
 
    memset( lcd_str, '\0', LCD_STR_SZ + 1 );
-   snprintf( lcd_str, LCD_STR_SZ,
-      "%d:%d %.2fF %d%% RH\nRain: %.2f in/hr\nPM2.5: %.2f ug/m3",
-      now_info->tm_hour, now_info->tm_min,
-      sub_vals[0], (int)(sub_vals[1]), sub_vals[2], sub_vals[3] );
+   for( i = 0 ; strlen( display_str ) > i ; i++ ) {
+      if( '$' == display_str[i] ) {
+         in_token = 1;
+
+      } else if( in_token ) {
+         /* Substitute tokens. */
+         switch( display_str[i] ) {
+         case 'T':
+            snprintf( &(lcd_str[j]), LCD_STR_SZ - j, "%d:%d",
+               now_info->tm_hour, now_info->tm_min );
+            j = strlen( lcd_str );
+            break;
+
+         case 'F':
+            snprintf( &(lcd_str[j]), LCD_STR_SZ - j, "%0.2f", g_sub_vals[k] );
+            j = strlen( lcd_str );
+            k++; /* Use next value for next token. */
+            break;
+
+         case 'D':
+            snprintf(
+               &(lcd_str[j]), LCD_STR_SZ - j, "%d", (int)(g_sub_vals[k]) );
+            j = strlen( lcd_str );
+            k++; /* Use next value for next token. */
+            break;
+
+         case 'N':
+            lcd_str[j++] = '\n';
+            break;
+         }
+         in_token = 0;
+
+      } else {
+         /* Just copy over chars. */
+         lcd_str[j] = display_str[i];
+         j++;
+      }
+   }
+
    write_check( lcd_str, strlen( lcd_str ) );
 
 cleanup:
@@ -157,31 +200,35 @@ void on_connect( struct mosquitto* mqtt, void* obj, int reason_code ) {
 
    debug_printf_3( "MQTT connected\n" );
 
-   sub_count = 0;
+   /* Load topic string. */
+   read_sz = cfg_read(
+      g_cfg_path, "display", 0,
+      BUF_TYPE_STR, display_str, DISPLAY_STR_SZ );
    
+   g_sub_count = 0;
    do {
       /* Read the topic into the buffer. */
       read_sz = cfg_read(
-         "show.conf", "topic", sub_count,
-         BUF_TYPE_STR, sub_topics[sub_count], SUB_TOPIC_SZ );
+         g_cfg_path, "topic", g_sub_count,
+         BUF_TYPE_STR, g_sub_topics[g_sub_count], SUB_TOPIC_SZ );
 
       if( 0 == read_sz ) {
          break;
       }
 
       /* Assemble processing macro. */
-      for( i = 0 ; strlen( sub_topics[sub_count] ) > i ; i++ ) {
-         if( '|' == sub_topics[sub_count][i] ) {
-            sub_topics[sub_count][i] = '\0';
-            debug_printf_1( "macro: %s\n", &(sub_topics[sub_count][i + 1]) );
+      for( i = 0 ; strlen( g_sub_topics[g_sub_count] ) > i ; i++ ) {
+         if( '|' == g_sub_topics[g_sub_count][i] ) {
+            g_sub_topics[g_sub_count][i] = '\0';
+            debug_printf_1( "macro: %s\n", &(g_sub_topics[g_sub_count][i + 1]) );
          }
       }
 
       debug_printf_2( "subscribing to topic %d: %s\n",
-         sub_count, sub_topics[sub_count] );
+         g_sub_count, g_sub_topics[g_sub_count] );
 
       /* Subscribe to the read topic. */
-      rc = mosquitto_subscribe( mqtt, NULL, sub_topics[sub_count], 1 );
+      rc = mosquitto_subscribe( mqtt, NULL, g_sub_topics[g_sub_count], 1 );
       if( MOSQ_ERR_SUCCESS == rc ) {
          debug_printf_2( "subscribed\n" );
       } else {
@@ -189,10 +236,10 @@ void on_connect( struct mosquitto* mqtt, void* obj, int reason_code ) {
          mosquitto_disconnect( mqtt );
       }
 
-      sub_count++;
+      g_sub_count++;
    } while( read_sz > 0 );
 
-   debug_printf_2( "%d subs!\n", sub_count );
+   debug_printf_2( "%d subs!\n", g_sub_count );
 }
 
 void on_subscribe(
@@ -211,50 +258,50 @@ void on_message(
    char* payload = msg->payload;
    char* topic = msg->topic;
 
-   for( i = 0 ; sub_count > i ; i++ ) {
-      if( 0 == strcmp( sub_topics[i], topic ) ) {
+   for( i = 0 ; g_sub_count > i ; i++ ) {
+      if( 0 == strcmp( g_sub_topics[i], topic ) ) {
          /* Draw temperature. */
          f_buf = atof( payload );
 
-         j = strlen( sub_topics[i] ) + 1;
-         while( SUB_TOPIC_SZ > j && '\0' != sub_topics[i][j] ) {
+         j = strlen( g_sub_topics[i] ) + 1;
+         while( SUB_TOPIC_SZ > j && '\0' != g_sub_topics[i][j] ) {
             /* Grab the next math op in the macro. */
-            switch( sub_topics[i][j] ) {
+            switch( g_sub_topics[i][j] ) {
             case '-':
             case '+':
             case '/':
             case '*':
-               debug_printf_1( "next op: %c\n", sub_topics[i][j] );
-               next_op = sub_topics[i][j];
+               debug_printf_1( "next op: %c\n", g_sub_topics[i][j] );
+               next_op = g_sub_topics[i][j];
                break;
             default:
                switch( next_op ) {
                case '*':
                   debug_printf_1( "multiplying %f by %f\n",
-                     f_buf, atof( &(sub_topics[i][j]) ) );
-                  f_buf *= atof( &(sub_topics[i][j]) );
-                  ff_num( sub_topics[i], j );
+                     f_buf, atof( &(g_sub_topics[i][j]) ) );
+                  f_buf *= atof( &(g_sub_topics[i][j]) );
+                  ff_num( g_sub_topics[i], j );
                   break;
 
                case '/':
                   debug_printf_1( "dividing %f by %f\n",
-                     f_buf, atof( &(sub_topics[i][j]) ) );
-                  f_buf /= atof( &(sub_topics[i][j]) );
-                  ff_num( sub_topics[i], j );
+                     f_buf, atof( &(g_sub_topics[i][j]) ) );
+                  f_buf /= atof( &(g_sub_topics[i][j]) );
+                  ff_num( g_sub_topics[i], j );
                   break;
 
                case '+':
                   debug_printf_1( "adding %f to %f\n",
-                     atof( &(sub_topics[i][j]) ), f_buf );
-                  f_buf += atof( &(sub_topics[i][j]) );
-                  ff_num( sub_topics[i], j );
+                     atof( &(g_sub_topics[i][j]) ), f_buf );
+                  f_buf += atof( &(g_sub_topics[i][j]) );
+                  ff_num( g_sub_topics[i], j );
                   break;
 
                case '-':
                   debug_printf_1( "subtracting %f from %f\n",
-                     atof( &(sub_topics[i][j]) ), f_buf );
-                  f_buf -= atof( &(sub_topics[i][j]) );
-                  ff_num( sub_topics[i], j );
+                     atof( &(g_sub_topics[i][j]) ), f_buf );
+                  f_buf -= atof( &(g_sub_topics[i][j]) );
+                  ff_num( g_sub_topics[i], j );
                   break;
                }
                next_op = '\0';
@@ -262,8 +309,8 @@ void on_message(
             }
             j++;
          }
-         sub_vals[i] = f_buf;
-         debug_printf_3( "%s: %f\n", sub_topics[i], sub_vals[i] );
+         g_sub_vals[i] = f_buf;
+         debug_printf_3( "%s: %f\n", g_sub_topics[i], g_sub_vals[i] );
          break;
       }
    }
@@ -299,14 +346,14 @@ int main( int argc, char* argv[] ) {
    mosquitto_message_callback_set( mqtt, on_message );
 
    /* Open the config. */
-   cfg_read( "show.conf", "port", 0, BUF_TYPE_STR, ser_path, SER_PATH_SZ );
-   cfg_read( "show.conf", "baud", 0, BUF_TYPE_INT, &ser_baud, sizeof( int ) );
+   cfg_read( g_cfg_path, "port", 0, BUF_TYPE_STR, ser_path, SER_PATH_SZ );
+   cfg_read( g_cfg_path, "baud", 0, BUF_TYPE_INT, &ser_baud, sizeof( int ) );
 
    /* Open the serial port to the display. */
    memset( &serset, '\0', sizeof( struct termios ) );
    debug_printf_3( "opening %s at %d bps...\n", ser_path, ser_baud );
-   ser_fd = open( ser_path, O_RDWR | O_NOCTTY );
-   if( 0 >= ser_fd || 0 >= ser_baud ) {
+   g_ser_fd = open( ser_path, O_RDWR | O_NOCTTY );
+   if( 0 >= g_ser_fd || 0 >= ser_baud ) {
       retval = 1;
       error_printf( "could not open serial!\n" );
       goto cleanup;
@@ -316,13 +363,13 @@ int main( int argc, char* argv[] ) {
 
    /* Setup MQTT connection. */
    cfg_read(
-      "show.conf", "mqtt_host", 0, BUF_TYPE_STR, mqtt_host, MQTT_ITEM_SZ );
+      g_cfg_path, "mqtt_host", 0, BUF_TYPE_STR, mqtt_host, MQTT_ITEM_SZ );
    cfg_read(
-      "show.conf", "mqtt_port", 0, BUF_TYPE_INT, &mqtt_port, sizeof( int ) );
+      g_cfg_path, "mqtt_port", 0, BUF_TYPE_INT, &mqtt_port, sizeof( int ) );
    cfg_read(
-      "show.conf", "mqtt_user", 0, BUF_TYPE_STR, mqtt_user, MQTT_ITEM_SZ );
+      g_cfg_path, "mqtt_user", 0, BUF_TYPE_STR, mqtt_user, MQTT_ITEM_SZ );
    cfg_read(
-      "show.conf", "mqtt_pass", 0, BUF_TYPE_STR, mqtt_pass, MQTT_ITEM_SZ );
+      g_cfg_path, "mqtt_pass", 0, BUF_TYPE_STR, mqtt_pass, MQTT_ITEM_SZ );
 
    debug_printf_3(
       "connecting to %s:%d as %s...\n", mqtt_host, mqtt_port, mqtt_user );
@@ -341,7 +388,7 @@ int main( int argc, char* argv[] ) {
 
 cleanup:
 
-   close( ser_fd );
+   close( g_ser_fd );
 
    mosquitto_lib_cleanup();
 
