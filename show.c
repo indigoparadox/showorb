@@ -19,6 +19,17 @@
 #define BUF_TYPE_STR 0
 #define BUF_TYPE_INT 1
 
+#define debug_printf_3( ... ) printf( __VA_ARGS__ )
+#define debug_printf_2( ... ) printf( __VA_ARGS__ )
+#if defined( DEBUG )
+#  define debug_printf_1( ... ) printf( __VA_ARGS__ )
+#else
+#  define debug_printf_1( ... )
+#endif
+#define error_printf( ... ) fprintf( stderr, __VA_ARGS__ )
+
+#define ff_num( buf, j ) while( '-' != buf[j] && '+' != buf[j] && '*' != buf[j] && '/' != buf[j] && '\0' != buf[j] ) { debug_printf_1( "macro iter: %c (%d)\n", buf[j], j ); j++; } j--;
+
 int ser_fd = -1;
 size_t sub_count = 0;
 
@@ -27,7 +38,7 @@ float sub_vals[SUB_TOPICS_COUNT];
 
 #define write_check( str, sz ) \
    if( sz != write( ser_fd, str, sz ) ) { \
-      fprintf( stderr, "error writing to serial port!\n" ); \
+      error_printf( "error writing to serial port!\n" ); \
       retval = 1; \
       goto cleanup; \
    }
@@ -144,7 +155,7 @@ void on_connect( struct mosquitto* mqtt, void* obj, int reason_code ) {
    size_t read_sz = 0;
    int i = 0;
 
-   printf( "MQTT connected\n" );
+   debug_printf_3( "MQTT connected\n" );
 
    sub_count = 0;
    
@@ -162,26 +173,26 @@ void on_connect( struct mosquitto* mqtt, void* obj, int reason_code ) {
       for( i = 0 ; strlen( sub_topics[sub_count] ) > i ; i++ ) {
          if( '|' == sub_topics[sub_count][i] ) {
             sub_topics[sub_count][i] = '\0';
-            printf( "macro: %s\n", &(sub_topics[sub_count][i + 1]) );
+            debug_printf_1( "macro: %s\n", &(sub_topics[sub_count][i + 1]) );
          }
       }
 
-      printf( "subscribing to topic %d: %s\n",
+      debug_printf_2( "subscribing to topic %d: %s\n",
          sub_count, sub_topics[sub_count] );
 
       /* Subscribe to the read topic. */
       rc = mosquitto_subscribe( mqtt, NULL, sub_topics[sub_count], 1 );
       if( MOSQ_ERR_SUCCESS == rc ) {
-         printf( "subscribed\n" );
+         debug_printf_2( "subscribed\n" );
       } else {
-         fprintf( stderr, "error subscribing\n" );
+         error_printf( "error subscribing\n" );
          mosquitto_disconnect( mqtt );
       }
 
       sub_count++;
    } while( read_sz > 0 );
 
-   printf( "%d subs!\n", sub_count );
+   debug_printf_2( "%d subs!\n", sub_count );
 }
 
 void on_subscribe(
@@ -193,29 +204,68 @@ void on_subscribe(
 void on_message(
    struct mosquitto* mqtt, void *obj, const struct mosquitto_message *msg
 ) {
-   int i = 0;
+   int i = 0,
+      j = 0;
+   char next_op = 0;
+   float f_buf = 0;
    char* payload = msg->payload;
    char* topic = msg->topic;
 
-   if( 0 == strcmp(
-      "rtl_433/weathersdr/devices/Fineoffset-WH24/42/temperature_C",
-      topic
-   ) ) {
-      /* Draw temperature. */
-      sub_vals[0] = ((atof( payload ) * 9.0f) / 5.0f) + 32.0f;
+   for( i = 0 ; sub_count > i ; i++ ) {
+      if( 0 == strcmp( sub_topics[i], topic ) ) {
+         /* Draw temperature. */
+         f_buf = atof( payload );
 
-   } else if( 0 == strcmp(
-      "rtl_433/weathersdr/devices/Fineoffset-WH24/42/humidity",
-      topic
-   ) ) {
-      sub_vals[1] = atof( payload );
+         j = strlen( sub_topics[i] ) + 1;
+         while( SUB_TOPIC_SZ > j && '\0' != sub_topics[i][j] ) {
+            /* Grab the next math op in the macro. */
+            switch( sub_topics[i][j] ) {
+            case '-':
+            case '+':
+            case '/':
+            case '*':
+               debug_printf_1( "next op: %c\n", sub_topics[i][j] );
+               next_op = sub_topics[i][j];
+               break;
+            default:
+               switch( next_op ) {
+               case '*':
+                  debug_printf_1( "multiplying %f by %f\n",
+                     f_buf, atof( &(sub_topics[i][j]) ) );
+                  f_buf *= atof( &(sub_topics[i][j]) );
+                  ff_num( sub_topics[i], j );
+                  break;
 
-   } else if( 0 == strcmp( sub_topics[2], topic ) ) {
-      sub_vals[2] = atof( payload );
+               case '/':
+                  debug_printf_1( "dividing %f by %f\n",
+                     f_buf, atof( &(sub_topics[i][j]) ) );
+                  f_buf /= atof( &(sub_topics[i][j]) );
+                  ff_num( sub_topics[i], j );
+                  break;
 
-   } else if( 0 == strcmp( sub_topics[3], topic ) ) {
-      sub_vals[3] = atof( payload );
+               case '+':
+                  debug_printf_1( "adding %f to %f\n",
+                     atof( &(sub_topics[i][j]) ), f_buf );
+                  f_buf += atof( &(sub_topics[i][j]) );
+                  ff_num( sub_topics[i], j );
+                  break;
 
+               case '-':
+                  debug_printf_1( "subtracting %f from %f\n",
+                     atof( &(sub_topics[i][j]) ), f_buf );
+                  f_buf -= atof( &(sub_topics[i][j]) );
+                  ff_num( sub_topics[i], j );
+                  break;
+               }
+               next_op = '\0';
+               break;  
+            }
+            j++;
+         }
+         sub_vals[i] = f_buf;
+         debug_printf_3( "%s: %f\n", sub_topics[i], sub_vals[i] );
+         break;
+      }
    }
 
    if( update_lcd() ) {
@@ -240,7 +290,7 @@ int main( int argc, char* argv[] ) {
 
    mqtt = mosquitto_new( NULL, 1, NULL );
    if( NULL == mqtt ) {
-      fprintf( stderr, "mosuitto init failure\n" );
+      error_printf( "mosuitto init failure\n" );
       goto cleanup;
    }
 
@@ -254,15 +304,15 @@ int main( int argc, char* argv[] ) {
 
    /* Open the serial port to the display. */
    memset( &serset, '\0', sizeof( struct termios ) );
-   printf( "opening %s at %d bps...\n", ser_path, ser_baud );
+   debug_printf_3( "opening %s at %d bps...\n", ser_path, ser_baud );
    ser_fd = open( ser_path, O_RDWR | O_NOCTTY );
    if( 0 >= ser_fd || 0 >= ser_baud ) {
       retval = 1;
-      printf( "could not open serial!\n" );
+      error_printf( "could not open serial!\n" );
       goto cleanup;
    }
    cfsetospeed( &serset, ser_baud );
-   printf( "serial opened\n" );
+   debug_printf_3( "serial opened\n" );
 
    /* Setup MQTT connection. */
    cfg_read(
@@ -274,7 +324,8 @@ int main( int argc, char* argv[] ) {
    cfg_read(
       "show.conf", "mqtt_pass", 0, BUF_TYPE_STR, mqtt_pass, MQTT_ITEM_SZ );
 
-   printf( "connecting to %s:%d as %s...\n", mqtt_host, mqtt_port, mqtt_user );
+   debug_printf_3(
+      "connecting to %s:%d as %s...\n", mqtt_host, mqtt_port, mqtt_user );
 
    mosquitto_username_pw_set( mqtt, mqtt_user, mqtt_pass );
 
@@ -282,7 +333,7 @@ int main( int argc, char* argv[] ) {
    if( MOSQ_ERR_SUCCESS != rc ) {
       retval = 1;
       mosquitto_destroy( mqtt );
-      fprintf( stderr, "MQTT error: %s\n", mosquitto_strerror( rc ) );
+      error_printf( "MQTT error: %s\n", mosquitto_strerror( rc ) );
       goto cleanup;
    }
 
