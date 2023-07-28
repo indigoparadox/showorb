@@ -337,8 +337,14 @@ int main( int argc, char* argv[] ) {
 
    mqtt = mosquitto_new( NULL, 1, NULL );
    if( NULL == mqtt ) {
-      error_printf( "mosuitto init failure\n" );
+      error_printf( "mosquitto init failure\n" );
       goto cleanup;
+   }
+
+   if( 1 < argc ) {
+      memset( g_cfg_path, '\0', CONFIG_PATH_SZ );
+      strncpy( g_cfg_path, argv[1], strlen( argv[1] ) );
+      debug_printf_3( "using config: %s\n", g_cfg_path );
    }
 
    mosquitto_connect_callback_set( mqtt, on_connect );
