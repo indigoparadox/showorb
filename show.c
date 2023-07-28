@@ -155,7 +155,7 @@ int update_lcd() {
          /* Substitute tokens. */
          switch( display_str[i] ) {
          case 'T':
-            snprintf( &(lcd_str[j]), LCD_STR_SZ - j, "%d:%d",
+            snprintf( &(lcd_str[j]), LCD_STR_SZ - j, "%d:%02d",
                now_info->tm_hour, now_info->tm_min );
             j = strlen( lcd_str );
             break;
