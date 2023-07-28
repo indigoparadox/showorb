@@ -1,0 +1,9 @@
+mqtt_user=
+mqtt_pass=
+mqtt_host=
+mqtt_port=1883
+port=/dev/serial/by-id/usb-Palm__Inc._Palm_Handheld_000000000000-if00-port1
+baud=115200
+topic=rtl_433/weathersdr/devices/Fineoffset-WH24/42/temperature_C|*9/5+32
+topic=rtl_433/weathersdr/devices/Fineoffset-WH24/42/humidity
+display=$T $FF $D% RH
