@@ -38,6 +38,13 @@ size_t g_sub_count = 0;
 char g_sub_topics[SUB_TOPICS_COUNT][SUB_TOPIC_SZ + 1];
 float g_sub_vals[SUB_TOPICS_COUNT];
 int g_retval = 0;
+int g_weather_temp_i = 0;
+int g_weather_hum_i = 0;
+int g_weather_rain_i = 0;
+int g_weather_light_i = 0;
+int g_weather_sun_icon = 0;
+int g_weather_cloud_icon = 0;
+int g_weather_rain_icon = 0;
 
 char display_str[DISPLAY_STR_SZ];
 char g_cfg_path[CONFIG_PATH_SZ] = "show.conf";
@@ -50,14 +57,16 @@ char g_cfg_path[CONFIG_PATH_SZ] = "show.conf";
    }
 
 size_t cfg_read(
-   const char* cfg_path, const char* key, int idx,
+   const char* cfg_path, const char* sect, const char* key, int idx,
    int buf_type, void* buf_out, size_t buf_out_sz
 ) {
    char c,
       key_buf[LINE_BUF_SZ + 1],
-      val_buf[LINE_BUF_SZ + 1];
+      val_buf[LINE_BUF_SZ + 1],
+      sect_buf[LINE_BUF_SZ + 1];
    int cfg = 0,
       in_val = 1,
+      in_sect = 0,
       * int_out = NULL;
    size_t read_sz = 0,
       line_total = 0,
@@ -79,6 +88,17 @@ size_t cfg_read(
          if( 1 > read_sz ) {
             goto cleanup;
 
+         } else if( '[' == c ) {
+            line_total = 0;
+            in_sect = 1;
+            in_val = 0;
+            idx_iter = 0; /* Index is only per-section. */
+
+         } else if( ']' == c ) {
+            sect_buf[line_total] = 0;
+            line_total = 0;
+            in_sect = 0;
+
          } else if( '=' == c ) {
             /* We're done reading the key and moving to the value. */
             line_total = 0;
@@ -87,6 +107,10 @@ size_t cfg_read(
          } else if( '\n' == c ) {
             /* We're reached the end of the line. */
             break;
+
+         } else if( in_sect ) {
+            /* We're reading the section. */
+            sect_buf[line_total++] = c;
 
          } else if( in_val ) {
             /* We're reading the value. */
@@ -99,6 +123,7 @@ size_t cfg_read(
       } while( read_sz == 1 );
 
       if(
+         0 == strncmp( sect, sect_buf, strlen( sect ) ) &&
          0 == strncmp( key, key_buf, strlen( key ) ) &&
          idx_iter == idx
       ) {
@@ -191,11 +216,12 @@ int update_lcd() {
    now_info = localtime( &now );
 
    /* Send custom chars. */
-   for( i = 0 ; 8 > i ; i++ ) {
+   /* Start at 1 because sending a 0 in a string is... tricky. */
+   for( i = 1 ; 8 > i ; i++ ) {
       memset( icon_path, '\0', CONFIG_PATH_SZ + 1 );
       debug_printf_1( "loading char: %s\n", icon_path );
       cfg_read(
-         g_cfg_path, "icon", i,
+         g_cfg_path, "font", "icon", i - 1,
          BUF_TYPE_STR, icon_path, CONFIG_PATH_SZ );
       debug_printf_1( "loaded char: %s\n", icon_path );
 
@@ -252,6 +278,19 @@ int update_lcd() {
          case 'N':
             lcd_str[j++] = '\n';
             break;
+
+         case 'W':
+            if( g_sub_vals[g_weather_rain_i] > 0 ) {
+               lcd_str[j++] = g_weather_rain_icon; 
+            } else if(
+               10000 > g_sub_vals[g_weather_light_i] &&
+               80 <= g_sub_vals[g_weather_hum_i] 
+            ) {
+               lcd_str[j++] = g_weather_cloud_icon; 
+            } else {
+               lcd_str[j++] = g_weather_sun_icon; 
+            }
+            break;
          }
          in_token = 0;
 
@@ -278,14 +317,14 @@ void on_connect( struct mosquitto* mqtt, void* obj, int reason_code ) {
 
    /* Load topic string. */
    read_sz = cfg_read(
-      g_cfg_path, "display", 0,
+      g_cfg_path, "lcd", "display", 0,
       BUF_TYPE_STR, display_str, DISPLAY_STR_SZ );
    
    g_sub_count = 0;
    do {
       /* Read the topic into the buffer. */
       read_sz = cfg_read(
-         g_cfg_path, "topic", g_sub_count,
+         g_cfg_path, "mqtt", "topic", g_sub_count,
          BUF_TYPE_STR, g_sub_topics[g_sub_count], SUB_TOPIC_SZ );
 
       if( 0 == read_sz ) {
@@ -388,6 +427,7 @@ void on_message(
          }
          g_sub_vals[i] = f_buf;
          debug_printf_3( "%s: %f\n", g_sub_topics[i], g_sub_vals[i] );
+
          break;
       }
    }
@@ -430,8 +470,10 @@ int main( int argc, char* argv[] ) {
    mosquitto_message_callback_set( mqtt, on_message );
 
    /* Open the config. */
-   cfg_read( g_cfg_path, "port", 0, BUF_TYPE_STR, ser_path, SER_PATH_SZ );
-   cfg_read( g_cfg_path, "baud", 0, BUF_TYPE_INT, &ser_baud, sizeof( int ) );
+   cfg_read(
+      g_cfg_path, "lcd", "port", 0, BUF_TYPE_STR, ser_path, SER_PATH_SZ );
+   cfg_read(
+      g_cfg_path, "lcd", "baud", 0, BUF_TYPE_INT, &ser_baud, sizeof( int ) );
 
    /* Open the serial port to the display. */
    memset( &serset, '\0', sizeof( struct termios ) );
@@ -445,15 +487,39 @@ int main( int argc, char* argv[] ) {
    cfsetospeed( &serset, ser_baud );
    debug_printf_3( "serial opened\n" );
 
+   /* Load weather icon config. */
+   cfg_read(
+      g_cfg_path, "weather", "temp_topic_idx", 0,
+      BUF_TYPE_INT, &g_weather_temp_i, sizeof( int ) );
+   cfg_read(
+      g_cfg_path, "weather", "hum_topic_idx", 0,
+      BUF_TYPE_INT, &g_weather_hum_i, sizeof( int ) );
+   cfg_read(
+      g_cfg_path, "weather", "rain_topic_idx", 0,
+      BUF_TYPE_INT, &g_weather_rain_i, sizeof( int ) );
+   cfg_read(
+      g_cfg_path, "weather", "light_topic_idx", 0,
+      BUF_TYPE_INT, &g_weather_light_i, sizeof( int ) );
+   cfg_read(
+      g_cfg_path, "weather", "sun_icon", 0,
+      BUF_TYPE_INT, &g_weather_sun_icon, sizeof( int ) );
+   cfg_read(
+      g_cfg_path, "weather", "cloud_icon", 0,
+      BUF_TYPE_INT, &g_weather_cloud_icon, sizeof( int ) );
+   cfg_read(
+      g_cfg_path, "weather", "rain_icon", 0,
+      BUF_TYPE_INT, &g_weather_rain_icon, sizeof( int ) );
+   printf( "weather calc: temp %d hum %d rain %d\n", g_weather_temp_i, g_weather_hum_i, g_weather_rain_i );
+
    /* Setup MQTT connection. */
    cfg_read(
-      g_cfg_path, "mqtt_host", 0, BUF_TYPE_STR, mqtt_host, MQTT_ITEM_SZ );
+      g_cfg_path, "mqtt", "host", 0, BUF_TYPE_STR, mqtt_host, MQTT_ITEM_SZ );
    cfg_read(
-      g_cfg_path, "mqtt_port", 0, BUF_TYPE_INT, &mqtt_port, sizeof( int ) );
+      g_cfg_path, "mqtt", "port", 0, BUF_TYPE_INT, &mqtt_port, sizeof( int ) );
    cfg_read(
-      g_cfg_path, "mqtt_user", 0, BUF_TYPE_STR, mqtt_user, MQTT_ITEM_SZ );
+      g_cfg_path, "mqtt", "user", 0, BUF_TYPE_STR, mqtt_user, MQTT_ITEM_SZ );
    cfg_read(
-      g_cfg_path, "mqtt_pass", 0, BUF_TYPE_STR, mqtt_pass, MQTT_ITEM_SZ );
+      g_cfg_path, "mqtt", "pass", 0, BUF_TYPE_STR, mqtt_pass, MQTT_ITEM_SZ );
 
    debug_printf_3(
       "connecting to %s:%d as %s...\n", mqtt_host, mqtt_port, mqtt_user );
