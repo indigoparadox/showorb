@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <mosquitto.h>
 #include <assert.h>
+#include <stdint.h>
 
 #define LCD_STR_SZ 255
 #define SER_PATH_SZ 255
@@ -125,6 +126,55 @@ cleanup:
    return 0;
 }
 
+int bmp_read( const char* bmp_path, uint8_t char_bits[8] ) {
+   int bmp_file = 0,
+      r = 0,
+      c = 0,
+      retval = 0;
+   uint32_t bmp_offset = 0;
+   uint8_t px = 0;
+
+   memset( char_bits, '\0', 8 );
+
+   bmp_file = open( bmp_path, O_RDONLY );
+   if( 0 >= bmp_file ) {
+      error_printf( "could not load char bitmap: %s\n", bmp_path );
+      retval = 1;
+      goto cleanup;
+   }
+
+   /* TODO: Check valid bitmap file. */
+
+   lseek( bmp_file, 10, SEEK_SET );
+   read( bmp_file, &bmp_offset, sizeof( uint32_t ) );
+   /* TODO: Check bitmap size greater than offset. */
+
+   /* Seek to bitmap offset and start parsing bits into bits array. */
+   lseek( bmp_file, bmp_offset, SEEK_SET );
+   for( r = 0 ; 8 > r ; r++ ) {
+      for( c = 0 ; 5 > c ; c++ ) {
+         /* Start from bottom, since the rows are reversed in bitmap format. */
+         char_bits[7 - r] <<= 1;
+
+         /* Read next bit into row. */
+         read( bmp_file, &px, 1 );
+         if( 0 == px ) {
+            char_bits[7 - r] |= 0x01;
+         }
+      }
+
+      /* Read out padding for row pixels divisble by 4. */
+      while( 8 > c ) { read( bmp_file, &px, 1 ); c++; }
+   }
+
+cleanup:
+   if( 0 < bmp_file ) {
+      close( bmp_file );
+   }
+
+   return retval;
+}
+
 int update_lcd() {
    char lcd_str[LCD_STR_SZ + 1];
    int retval = 0,
@@ -134,9 +184,34 @@ int update_lcd() {
    size_t i = 0,
       j = 0,
       k = 0;
+   char char_bits[9];
+   char icon_path[CONFIG_PATH_SZ + 1];
 
    time( &now );
    now_info = localtime( &now );
+
+   /* Send custom chars. */
+   for( i = 0 ; 8 > i ; i++ ) {
+      memset( icon_path, '\0', CONFIG_PATH_SZ + 1 );
+      debug_printf_1( "loading char: %s\n", icon_path );
+      cfg_read(
+         g_cfg_path, "icon", i,
+         BUF_TYPE_STR, icon_path, CONFIG_PATH_SZ );
+      debug_printf_1( "loaded char: %s\n", icon_path );
+
+      if( 0 >= strlen( icon_path ) ) {
+         debug_printf_1( "done loading chars\n" );
+         break;
+      }
+
+      char_bits[0] = i;
+      if( bmp_read( icon_path, &(char_bits[1]) ) ) {
+         retval = 1;
+         goto cleanup;
+      }
+      write_check( "\xfe\x4e", 2 );
+      write_check( char_bits, 9 ); /* Char selector prepended. */
+   }
 
    /* Disable autoscroll. */
    write_check( "\xfe\x52", 2 );
@@ -221,7 +296,8 @@ void on_connect( struct mosquitto* mqtt, void* obj, int reason_code ) {
       for( i = 0 ; strlen( g_sub_topics[g_sub_count] ) > i ; i++ ) {
          if( '|' == g_sub_topics[g_sub_count][i] ) {
             g_sub_topics[g_sub_count][i] = '\0';
-            debug_printf_1( "macro: %s\n", &(g_sub_topics[g_sub_count][i + 1]) );
+            debug_printf_1(
+               "macro: %s\n", &(g_sub_topics[g_sub_count][i + 1]) );
          }
       }
 
