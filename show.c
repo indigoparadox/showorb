@@ -36,6 +36,7 @@ int g_ser_fd = -1;
 size_t g_sub_count = 0;
 char g_sub_topics[SUB_TOPICS_COUNT][SUB_TOPIC_SZ + 1];
 float g_sub_vals[SUB_TOPICS_COUNT];
+int g_retval = 0;
 
 char display_str[DISPLAY_STR_SZ];
 char g_cfg_path[CONFIG_PATH_SZ] = "show.conf";
@@ -316,6 +317,7 @@ void on_message(
    }
 
    if( update_lcd() ) {
+      g_retval = 1;
       mosquitto_disconnect( mqtt );
       mosquitto_loop_stop( mqtt, 0 );
    }
@@ -331,13 +333,13 @@ int main( int argc, char* argv[] ) {
    char mqtt_host[MQTT_ITEM_SZ + 1];
    char mqtt_user[MQTT_ITEM_SZ + 1];
    char mqtt_pass[MQTT_ITEM_SZ + 1];
-   int retval = 0;
 
    mosquitto_lib_init();
 
    mqtt = mosquitto_new( NULL, 1, NULL );
    if( NULL == mqtt ) {
       error_printf( "mosquitto init failure\n" );
+      g_retval = 1; \
       goto cleanup;
    }
 
@@ -360,7 +362,7 @@ int main( int argc, char* argv[] ) {
    debug_printf_3( "opening %s at %d bps...\n", ser_path, ser_baud );
    g_ser_fd = open( ser_path, O_RDWR | O_NOCTTY );
    if( 0 >= g_ser_fd || 0 >= ser_baud ) {
-      retval = 1;
+      g_retval = 1;
       error_printf( "could not open serial!\n" );
       goto cleanup;
    }
@@ -384,7 +386,7 @@ int main( int argc, char* argv[] ) {
 
    rc = mosquitto_connect( mqtt, mqtt_host, mqtt_port, 60 );
    if( MOSQ_ERR_SUCCESS != rc ) {
-      retval = 1;
+      g_retval = 1;
       mosquitto_destroy( mqtt );
       error_printf( "MQTT error: %s\n", mosquitto_strerror( rc ) );
       goto cleanup;
@@ -398,6 +400,6 @@ cleanup:
 
    mosquitto_lib_cleanup();
 
-   return retval; 
+   return g_retval; 
 }
 
