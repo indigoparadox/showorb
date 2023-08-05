@@ -19,6 +19,8 @@
 #define DISPLAY_STR_SZ 255
 #define CONFIG_PATH_SZ 255
 
+#define HUMID_CLOUD_THRESHOLD 80
+
 #define BUF_TYPE_STR 0
 #define BUF_TYPE_INT 1
 
@@ -43,6 +45,7 @@ int g_weather_hum_i = 0;
 int g_weather_rain_i = 0;
 int g_weather_light_i = 0;
 int g_weather_sun_icon = 0;
+int g_weather_moon_icon = 0;
 int g_weather_cloud_icon = 0;
 int g_weather_rain_icon = 0;
 
@@ -281,12 +284,23 @@ int update_lcd() {
 
          case 'W':
             if( g_sub_vals[g_weather_rain_i] > 0 ) {
+               /* It's raining. */
                lcd_str[j++] = g_weather_rain_icon; 
+
             } else if(
                10000 > g_sub_vals[g_weather_light_i] &&
-               80 <= g_sub_vals[g_weather_hum_i] 
+               HUMID_CLOUD_THRESHOLD <= g_sub_vals[g_weather_hum_i] 
             ) {
+               /* It's dark (because it's cloudy). */
                lcd_str[j++] = g_weather_cloud_icon; 
+
+            } else if(
+               10000 > g_sub_vals[g_weather_light_i] &&
+               (8 > now_info->tm_hour || 18 < now_info->tm_hour)
+            ) {
+               /* It's dark (because it's night). */
+               lcd_str[j++] = g_weather_moon_icon;
+
             } else {
                lcd_str[j++] = g_weather_sun_icon; 
             }
@@ -503,6 +517,9 @@ int main( int argc, char* argv[] ) {
    cfg_read(
       g_cfg_path, "weather", "sun_icon", 0,
       BUF_TYPE_INT, &g_weather_sun_icon, sizeof( int ) );
+   cfg_read(
+      g_cfg_path, "weather", "moon_icon", 0,
+      BUF_TYPE_INT, &g_weather_moon_icon, sizeof( int ) );
    cfg_read(
       g_cfg_path, "weather", "cloud_icon", 0,
       BUF_TYPE_INT, &g_weather_cloud_icon, sizeof( int ) );
