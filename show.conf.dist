@@ -1,9 +1,30 @@
-mqtt_user=
-mqtt_pass=
-mqtt_host=
-mqtt_port=1883
-port=/dev/serial/by-id/usb-Palm__Inc._Palm_Handheld_000000000000-if00-port1
-baud=115200
+[mqtt]
+user=
+pass=
+host=
+port=1883
 topic=rtl_433/weathersdr/devices/Fineoffset-WH24/42/temperature_C|*9/5+32
 topic=rtl_433/weathersdr/devices/Fineoffset-WH24/42/humidity
-display=$T $FF $D% RH
+topic=home_assistant/sensors/rain_in_per_hour
+topic=rtl_433/weathersdr/devices/Fineoffset-WH24/42/light_lux
+
+[lcd]
+port=/dev/serial/by-id/usb-Palm__Inc._Palm_Handheld_000000000000-if00-port1
+baud=115200
+display=$T $FF $D% $W
+
+[font]
+icon=icons/sun.bmp
+icon=icons/cloud.bmp
+icon=icons/rain.bmp
+icon=icons/moon.bmp
+
+[weather]
+temp_topic_idx=0
+hum_topic_idx=1
+rain_topic_idx=2
+light_topic_idx=4
+sun_icon=1
+cloud_icon=2
+rain_icon=3
+moon_icon=4
