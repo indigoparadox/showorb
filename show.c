@@ -24,6 +24,8 @@
 #define BUF_TYPE_STR 0
 #define BUF_TYPE_INT 1
 
+#define ERR_BITMAP 2
+
 #define debug_printf_3( ... ) printf( __VA_ARGS__ )
 #define debug_printf_2( ... ) printf( __VA_ARGS__ )
 #if defined( DEBUG )
@@ -159,23 +161,52 @@ int bmp_read( const char* bmp_path, uint8_t char_bits[8] ) {
       r = 0,
       c = 0,
       retval = 0;
-   uint32_t bmp_offset = 0;
+   uint32_t bmp_offset = 0,
+      bmp_sz = 0;
    uint8_t px = 0;
+   char bmp_check[3] = { 0, 0, 0 };
 
    memset( char_bits, '\0', 8 );
+
+   debug_printf_1( "loading bitmap: %s\n", bmp_path );
 
    bmp_file = open( bmp_path, O_RDONLY );
    if( 0 >= bmp_file ) {
       error_printf( "could not load char bitmap: %s\n", bmp_path );
-      retval = 1;
+      retval = ERR_BITMAP;
       goto cleanup;
    }
 
-   /* TODO: Check valid bitmap file. */
+   /* Check valid bitmap file. */
+   read( bmp_file, &bmp_check, 2 );
+   if( 0 != strncmp( "BM", bmp_check, 2 ) ) {
+      error_printf( "invalid bitmap file!\n" );
+      retval = ERR_BITMAP;
+      goto cleanup;
+   }
 
    lseek( bmp_file, 10, SEEK_SET );
-   read( bmp_file, &bmp_offset, sizeof( uint32_t ) );
+   if(
+      sizeof( uint32_t ) > read( bmp_file, &bmp_offset, sizeof( uint32_t ) )
+   ) {
+      error_printf( "could not read bitmap offset!\n" );
+      retval = ERR_BITMAP;
+      goto cleanup;
+   }
+
    /* TODO: Check bitmap size greater than offset. */
+
+   lseek( bmp_file, 14, SEEK_SET );
+   if(
+      sizeof( uint32_t ) > read( bmp_file, &bmp_sz, sizeof( uint32_t ) ) ||
+      40 != bmp_sz
+   ) {
+      error_printf( "invalid bitmap header!\n" );
+      retval = ERR_BITMAP;
+      goto cleanup;
+   }
+
+   debug_printf_1( "reading bitmap bits...\n" );
 
    /* Seek to bitmap offset and start parsing bits into bits array. */
    lseek( bmp_file, bmp_offset, SEEK_SET );
@@ -195,6 +226,8 @@ int bmp_read( const char* bmp_path, uint8_t char_bits[8] ) {
       while( 8 > c ) { read( bmp_file, &px, 1 ); c++; }
    }
 
+   debug_printf_1( "bitmap %s read successfully!\n", bmp_path );
+
 cleanup:
    if( 0 < bmp_file ) {
       close( bmp_file );
@@ -203,20 +236,13 @@ cleanup:
    return retval;
 }
 
-int update_lcd() {
-   char lcd_str[LCD_STR_SZ + 1];
-   int retval = 0,
-      in_token = 0;
-   time_t now = 0;
-   struct tm* now_info = NULL;
-   size_t i = 0,
-      j = 0,
-      k = 0;
+int update_chars() {
+   int i = 0,
+      retval = 0;
    char char_bits[9];
    char icon_path[CONFIG_PATH_SZ + 1];
 
-   time( &now );
-   now_info = localtime( &now );
+   debug_printf_1( "sending custom characters...\n" );
 
    /* Send custom chars. */
    /* Start at 1 because sending a 0 in a string is... tricky. */
@@ -242,6 +268,26 @@ int update_lcd() {
       write_check( char_bits, 9 ); /* Char selector prepended. */
    }
 
+cleanup:
+
+   return retval;
+}
+
+int update_lcd() {
+   char lcd_str[LCD_STR_SZ + 1];
+   int retval = 0,
+      in_token = 0;
+   time_t now = 0;
+   struct tm* now_info = NULL;
+   size_t i = 0,
+      j = 0,
+      k = 0;
+
+   time( &now );
+   now_info = localtime( &now );
+
+   debug_printf_1( "setting up display...\n" );
+
    /* Disable autoscroll. */
    write_check( "\xfe\x52", 2 );
 
@@ -252,6 +298,7 @@ int update_lcd() {
    write_check( "\xfe\x58", 2 );
 
    memset( lcd_str, '\0', LCD_STR_SZ + 1 );
+   debug_printf_1( "formatting display string...\n" );
    for( i = 0 ; strlen( display_str ) > i ; i++ ) {
       if( '$' == display_str[i] ) {
          in_token = 1;
@@ -315,7 +362,11 @@ int update_lcd() {
       }
    }
 
+   debug_printf_1( "writing to display...\n" );
+
    write_check( lcd_str, strlen( lcd_str ) );
+
+   debug_printf_1( "update complete!\n" );
 
 cleanup:
 
@@ -388,12 +439,17 @@ void on_message(
    char* payload = msg->payload;
    char* topic = msg->topic;
 
+   debug_printf_1( "received message at %s: %s\n", topic, payload );
+
    for( i = 0 ; g_sub_count > i ; i++ ) {
       if( 0 == strcmp( g_sub_topics[i], topic ) ) {
-         /* Draw temperature. */
+         /* Draw variable. */
          f_buf = atof( payload );
-
          j = strlen( g_sub_topics[i] ) + 1;
+
+         debug_printf_1( "applying message transformation: %s\n",
+            &(g_sub_topics[j]) );
+
          while( SUB_TOPIC_SZ > j && '\0' != g_sub_topics[i][j] ) {
             /* Grab the next math op in the macro. */
             switch( g_sub_topics[i][j] ) {
@@ -447,6 +503,7 @@ void on_message(
    }
 
    if( update_lcd() ) {
+      error_printf( "stopping MQTT loop!\n" );
       g_retval = 1;
       mosquitto_disconnect( mqtt );
       mosquitto_loop_stop( mqtt, 0 );
@@ -527,6 +584,12 @@ int main( int argc, char* argv[] ) {
       g_cfg_path, "weather", "rain_icon", 0,
       BUF_TYPE_INT, &g_weather_rain_icon, sizeof( int ) );
    printf( "weather calc: temp %d hum %d rain %d\n", g_weather_temp_i, g_weather_hum_i, g_weather_rain_i );
+
+   if( update_chars() ) {
+      error_printf( "failed to update custom characters!\n" );
+      g_retval = 1;
+      goto cleanup;
+   }
 
    /* Setup MQTT connection. */
    cfg_read(
