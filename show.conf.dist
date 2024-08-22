@@ -5,8 +5,7 @@ host=
 port=1883
 topic=rtl_433/weathersdr/devices/Fineoffset-WH24/42/temperature_C|*9/5+32
 topic=rtl_433/weathersdr/devices/Fineoffset-WH24/42/humidity
-topic=home_assistant/sensors/rain_in_per_hour
-topic=rtl_433/weathersdr/devices/Fineoffset-WH24/42/light_lux
+topic=home_assistant/outside_conditions
 
 [lcd]
 port=/dev/serial/by-id/usb-Palm__Inc._Palm_Handheld_000000000000-if00-port1
@@ -20,10 +19,6 @@ icon=icons/rain.bmp
 icon=icons/moon.bmp
 
 [weather]
-temp_topic_idx=0
-hum_topic_idx=1
-rain_topic_idx=2
-light_topic_idx=4
 sun_icon=1
 cloud_icon=2
 rain_icon=3

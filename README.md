@@ -2,6 +2,8 @@
 
 Rough daemon for displaying MQTT data on an Orbit LCD.
 
+This can be useful when combined with [PalmOrb LCD emulator](https://palmorb.sourceforge.net/).
+
 ## Configuration
 
 ### mqtt
@@ -26,13 +28,15 @@ This is a line of tokens that pull from the list of topics in the \[mqtt\] secti
 
 #### icon
 
-This is a list of special bitmaps to send to the LCD for special icons.
+This is a list of special bitmaps to send to the LCD for special icons, mainly used by the **$W** token in the `display=` line in the \[lcd\] section right now..
 
 Each line should be in the format of `icon=/path/to/icon.bmp`
 
 ### \[weather\]
 
-This is a list of icon indexes. The bitmaps to send to the LCD for these special icon characters are listed at the **index** position in the \[fonts\] section. e.g. sun\_icon=1 will tell the LCD that the "sun" icon should be the special font character loaded by the first `icon=` line in the \[fonts\] section.
+This is a list of icon indexes, mainly used by the **$W** token in the `display=` line in the \[lcd\] section right now..
+
+The bitmaps to send to the LCD for these special icon characters are listed at the **index** position in the \[fonts\] section. e.g. sun\_icon=1 will tell the LCD that the "sun" icon should be the special font character loaded by the first `icon=` line in the \[fonts\] section.
 
  * sun\_icon
  * cloud\_icon
