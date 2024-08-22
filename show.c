@@ -42,10 +42,6 @@ size_t g_sub_count = 0;
 char g_sub_topics[SUB_TOPICS_COUNT][SUB_TOPIC_SZ + 1];
 float g_sub_vals[SUB_TOPICS_COUNT];
 int g_retval = 0;
-int g_weather_temp_i = 0;
-int g_weather_hum_i = 0;
-int g_weather_rain_i = 0;
-int g_weather_light_i = 0;
 int g_weather_sun_icon = 0;
 int g_weather_moon_icon = 0;
 int g_weather_cloud_icon = 0;
@@ -281,7 +277,7 @@ int update_lcd() {
    struct tm* now_info = NULL;
    size_t i = 0,
       j = 0,
-      k = 0;
+      k = 0; /* Index of current topic token in list of topics. */
 
    time( &now );
    now_info = localtime( &now );
@@ -330,27 +326,18 @@ int update_lcd() {
             break;
 
          case 'W':
-            if( g_sub_vals[g_weather_rain_i] > 0 ) {
-               /* It's raining. */
-               lcd_str[j++] = g_weather_rain_icon; 
-
-            } else if(
-               10000 > g_sub_vals[g_weather_light_i] &&
-               HUMID_CLOUD_THRESHOLD <= g_sub_vals[g_weather_hum_i] 
-            ) {
-               /* It's dark (because it's cloudy). */
+            if( 0 == g_sub_vals[k] ) {
+               lcd_str[j++] = g_weather_rain_icon;
+	    } else if( 1 == g_sub_vals[k] ) {
                lcd_str[j++] = g_weather_cloud_icon; 
-
-            } else if(
-               10000 > g_sub_vals[g_weather_light_i] &&
-               (8 > now_info->tm_hour || 18 < now_info->tm_hour)
-            ) {
-               /* It's dark (because it's night). */
+	    } else if( 2 == g_sub_vals[k] ) {
                lcd_str[j++] = g_weather_moon_icon;
-
-            } else {
+	    } else if( 3 == g_sub_vals[k] ) {
                lcd_str[j++] = g_weather_sun_icon; 
-            }
+            } else {
+               lcd_str[j++] = '?';
+	    }
+            k++; /* Use next value for next token. */
             break;
          }
          in_token = 0;
@@ -560,18 +547,6 @@ int main( int argc, char* argv[] ) {
 
    /* Load weather icon config. */
    cfg_read(
-      g_cfg_path, "weather", "temp_topic_idx", 0,
-      BUF_TYPE_INT, &g_weather_temp_i, sizeof( int ) );
-   cfg_read(
-      g_cfg_path, "weather", "hum_topic_idx", 0,
-      BUF_TYPE_INT, &g_weather_hum_i, sizeof( int ) );
-   cfg_read(
-      g_cfg_path, "weather", "rain_topic_idx", 0,
-      BUF_TYPE_INT, &g_weather_rain_i, sizeof( int ) );
-   cfg_read(
-      g_cfg_path, "weather", "light_topic_idx", 0,
-      BUF_TYPE_INT, &g_weather_light_i, sizeof( int ) );
-   cfg_read(
       g_cfg_path, "weather", "sun_icon", 0,
       BUF_TYPE_INT, &g_weather_sun_icon, sizeof( int ) );
    cfg_read(
@@ -583,7 +558,6 @@ int main( int argc, char* argv[] ) {
    cfg_read(
       g_cfg_path, "weather", "rain_icon", 0,
       BUF_TYPE_INT, &g_weather_rain_icon, sizeof( int ) );
-   printf( "weather calc: temp %d hum %d rain %d\n", g_weather_temp_i, g_weather_hum_i, g_weather_rain_i );
 
    if( update_chars() ) {
       error_printf( "failed to update custom characters!\n" );
