@@ -9,6 +9,7 @@
 #include <mosquitto.h>
 #include <assert.h>
 #include <stdint.h>
+#include <errno.h>
 
 #define LCD_STR_SZ 255
 #define SER_PATH_SZ 255
@@ -57,7 +58,17 @@ char g_cfg_path[CONFIG_PATH_SZ] = "show.conf";
       goto cleanup; \
    }
 
-size_t cfg_read(
+
+#define checked_cfg_read( \
+   cfg_path, sect, key, idx, buf_type, buf_out, buf_out_sz ) \
+      if( \
+         0 > \
+         cfg_read( cfg_path, sect, key, idx, buf_type, buf_out, buf_out_sz ) \
+      ) { \
+         goto cleanup; \
+      }
+
+ssize_t cfg_read(
    const char* cfg_path, const char* sect, const char* key, int idx,
    int buf_type, void* buf_out, size_t buf_out_sz
 ) {
@@ -72,10 +83,16 @@ size_t cfg_read(
    size_t read_sz = 0,
       line_total = 0,
       idx_iter = 0;
+   ssize_t retval = 0;
 
    memset( buf_out, '\0', buf_out_sz );
 
    cfg = open( cfg_path, O_RDONLY );
+   if( 0 > cfg ) {
+      error_printf( "could not open config: %d\n", errno );
+      retval = -1;
+      goto cleanup;
+   }
 
    do {
       line_total = 0;
@@ -87,6 +104,8 @@ size_t cfg_read(
       do {
          read_sz = read( cfg, &c, 1 );
          if( 1 > read_sz ) {
+            error_printf( "error reading config: %d\n", errno );
+            retval = -1;
             goto cleanup;
 
          } else if( '[' == c ) {
@@ -131,16 +150,20 @@ size_t cfg_read(
          switch( buf_type ) {
          case BUF_TYPE_STR:
             strncpy( buf_out, val_buf, buf_out_sz );
-            return strlen( val_buf );
+            retval = strlen( val_buf );
+            goto cleanup;
 
          case BUF_TYPE_INT:
             assert( sizeof( int ) == buf_out_sz );
             int_out = (int*)buf_out;
             *int_out = atoi( val_buf );
-            return sizeof( int );
+            retval = sizeof( int );
+            goto cleanup;
 
          default:
-            return 0;
+            error_printf( "invalid type: %d\n", buf_type );
+            retval = -1;
+            goto cleanup;
          }
       } else if( 0 == strncmp( key, key_buf, strlen( key ) ) ) {
          /* Found a match, but not the index requested! */
@@ -149,7 +172,12 @@ size_t cfg_read(
    } while( 1 );
 
 cleanup:
-   return 0;
+
+   if( 0 <= cfg ) {
+      close( cfg );
+   }
+
+   return retval;
 }
 
 int bmp_read( const char* bmp_path, uint8_t char_bits[8] ) {
@@ -528,9 +556,9 @@ int main( int argc, char* argv[] ) {
    mosquitto_message_callback_set( mqtt, on_message );
 
    /* Open the config. */
-   cfg_read(
+   checked_cfg_read(
       g_cfg_path, "lcd", "port", 0, BUF_TYPE_STR, ser_path, SER_PATH_SZ );
-   cfg_read(
+   checked_cfg_read(
       g_cfg_path, "lcd", "baud", 0, BUF_TYPE_INT, &ser_baud, sizeof( int ) );
 
    /* Open the serial port to the display. */
@@ -546,16 +574,16 @@ int main( int argc, char* argv[] ) {
    debug_printf_3( "serial opened\n" );
 
    /* Load weather icon config. */
-   cfg_read(
+   checked_cfg_read(
       g_cfg_path, "weather", "sun_icon", 0,
       BUF_TYPE_INT, &g_weather_sun_icon, sizeof( int ) );
-   cfg_read(
+   checked_cfg_read(
       g_cfg_path, "weather", "moon_icon", 0,
       BUF_TYPE_INT, &g_weather_moon_icon, sizeof( int ) );
-   cfg_read(
+   checked_cfg_read(
       g_cfg_path, "weather", "cloud_icon", 0,
       BUF_TYPE_INT, &g_weather_cloud_icon, sizeof( int ) );
-   cfg_read(
+   checked_cfg_read(
       g_cfg_path, "weather", "rain_icon", 0,
       BUF_TYPE_INT, &g_weather_rain_icon, sizeof( int ) );
 
@@ -566,13 +594,13 @@ int main( int argc, char* argv[] ) {
    }
 
    /* Setup MQTT connection. */
-   cfg_read(
+   checked_cfg_read(
       g_cfg_path, "mqtt", "host", 0, BUF_TYPE_STR, mqtt_host, MQTT_ITEM_SZ );
-   cfg_read(
+   checked_cfg_read(
       g_cfg_path, "mqtt", "port", 0, BUF_TYPE_INT, &mqtt_port, sizeof( int ) );
-   cfg_read(
+   checked_cfg_read(
       g_cfg_path, "mqtt", "user", 0, BUF_TYPE_STR, mqtt_user, MQTT_ITEM_SZ );
-   cfg_read(
+   checked_cfg_read(
       g_cfg_path, "mqtt", "pass", 0, BUF_TYPE_STR, mqtt_pass, MQTT_ITEM_SZ );
 
    debug_printf_3(
