@@ -104,8 +104,7 @@ ssize_t cfg_read(
       do {
          read_sz = read( cfg, &c, 1 );
          if( 1 > read_sz ) {
-            error_printf( "error reading config: %d\n", errno );
-            retval = -1;
+            /* Ran out of config to read! */
             goto cleanup;
 
          } else if( '[' == c ) {
