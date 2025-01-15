@@ -530,7 +530,7 @@ void on_message(
             j++;
          }
          g_sub_vals[i] = f_buf;
-         debug_printf_3( "%s: %f\n", g_sub_topics[i], g_sub_vals[i] );
+         debug_printf_1( "%s: %f\n", g_sub_topics[i], g_sub_vals[i] );
 
          break;
       }
