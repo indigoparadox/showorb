@@ -29,9 +29,10 @@
 
 #define debug_printf_3( ... ) printf( __VA_ARGS__ )
 #define debug_printf_2( ... ) printf( __VA_ARGS__ )
-#if defined( DEBUG )
+#if !defined( NDEBUG )
 #  define debug_printf_1( ... ) printf( __VA_ARGS__ )
 #else
+#  warning "building debug version!"
 #  define debug_printf_1( ... )
 #endif
 #define error_printf( ... ) fprintf( stderr, __VA_ARGS__ )
@@ -49,7 +50,7 @@ int g_weather_cloud_icon = 0;
 int g_weather_rain_icon = 0;
 
 char display_str[DISPLAY_STR_SZ];
-char g_cfg_path[CONFIG_PATH_SZ] = "show.conf";
+char g_cfg_path[CONFIG_PATH_SZ + 1] = "show.conf";
 
 #define write_check( str, sz ) \
    if( sz != write( g_ser_fd, str, sz ) ) { \
@@ -188,6 +189,7 @@ int bmp_read( const char* bmp_path, uint8_t char_bits[8] ) {
       bmp_sz = 0;
    uint8_t px = 0;
    char bmp_check[3] = { 0, 0, 0 };
+   ssize_t read_sz = 0;
 
    memset( char_bits, '\0', 8 );
 
@@ -201,7 +203,12 @@ int bmp_read( const char* bmp_path, uint8_t char_bits[8] ) {
    }
 
    /* Check valid bitmap file. */
-   read( bmp_file, &bmp_check, 2 );
+   read_sz = read( bmp_file, &bmp_check, 2 );
+   if( 2 != read_sz ) {
+      error_printf( "error reading bitmap: %s", bmp_path );
+      retval = ERR_BITMAP;
+      goto cleanup;
+   }
    if( 0 != strncmp( "BM", bmp_check, 2 ) ) {
       error_printf( "invalid bitmap file!\n" );
       retval = ERR_BITMAP;
@@ -239,14 +246,27 @@ int bmp_read( const char* bmp_path, uint8_t char_bits[8] ) {
          char_bits[7 - r] <<= 1;
 
          /* Read next bit into row. */
-         read( bmp_file, &px, 1 );
+         read_sz = read( bmp_file, &px, 1 );
+         if( 1 != read_sz ) {
+            error_printf( "error reading bitmap!" );
+            retval = ERR_BITMAP;
+            goto cleanup;
+         }
          if( 0 == px ) {
             char_bits[7 - r] |= 0x01;
          }
       }
 
       /* Read out padding for row pixels divisble by 4. */
-      while( 8 > c ) { read( bmp_file, &px, 1 ); c++; }
+      while( 8 > c ) {
+         read_sz = read( bmp_file, &px, 1 );
+         if( 1 != read_sz ) {
+            error_printf( "error reading bitmap!" );
+            retval = ERR_BITMAP;
+            goto cleanup;
+         }
+         c++;
+      }
    }
 
    debug_printf_1( "bitmap %s read successfully!\n", bmp_path );
@@ -419,7 +439,7 @@ void on_connect( struct mosquitto* mqtt, void* obj, int reason_code ) {
          }
       }
 
-      debug_printf_2( "subscribing to topic %d: %s\n",
+      debug_printf_2( "subscribing to topic %lu: %s\n",
          g_sub_count, g_sub_topics[g_sub_count] );
 
       /* Subscribe to the read topic. */
@@ -434,7 +454,7 @@ void on_connect( struct mosquitto* mqtt, void* obj, int reason_code ) {
       g_sub_count++;
    } while( read_sz > 0 );
 
-   debug_printf_2( "%d subs!\n", g_sub_count );
+   debug_printf_2( "%ld subs!\n", g_sub_count );
 }
 
 void on_subscribe(
@@ -462,7 +482,7 @@ void on_message(
          j = strlen( g_sub_topics[i] ) + 1;
 
          debug_printf_1( "applying message transformation: %s\n",
-            &(g_sub_topics[j]) );
+            &(g_sub_topics[i][j]) );
 
          while( SUB_TOPIC_SZ > j && '\0' != g_sub_topics[i][j] ) {
             /* Grab the next math op in the macro. */
@@ -545,8 +565,8 @@ int main( int argc, char* argv[] ) {
    }
 
    if( 1 < argc ) {
-      memset( g_cfg_path, '\0', CONFIG_PATH_SZ );
-      strncpy( g_cfg_path, argv[1], strlen( argv[1] ) );
+      memset( g_cfg_path, '\0', CONFIG_PATH_SZ + 1 );
+      strncpy( g_cfg_path, argv[1], CONFIG_PATH_SZ );
       debug_printf_3( "using config: %s\n", g_cfg_path );
    }
 

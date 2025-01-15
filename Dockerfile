@@ -16,7 +16,7 @@ RUN apk update && apk add --no-cache --virtual .build-deps \
 COPY ./show.c /opt/showorb
 COPY ./Makefile /opt/showorb
 
-RUN make
+RUN make BUILD=RELEASE
 
 RUN apk del .build-deps
 
