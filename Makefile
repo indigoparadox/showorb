@@ -13,6 +13,8 @@ PREFIX := /usr/local
 ETC := /etc
 SYSTEMD := /etc/systemd/system
 VER := 1.0
+ARCH := $(shell dpkg --print-architecture)
+DEBDIR := showorb-$(VER)-$(ARCH)
 
 showorb: show.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
@@ -26,13 +28,13 @@ install: showorb
 
 deb:
 	make clean
-	mkdir -p showorb-$(VER)/usr/bin
-	mkdir -p showorb-$(VER)/etc/systemd/system
-	mkdir -p showorb-$(VER)/DEBIAN
-	make INSTALLDIR=showorb-$(VER) PREFIX=/usr install
-	sed "s|^Version: 1.0|Version: $(VER)|g" control > showorb-$(VER)/DEBIAN/control
-	dpkg-deb --build --root-owner-group showorb-$(VER)
+	mkdir -p $(DEBDIR)/usr/bin
+	mkdir -p $(DEBDIR)/etc/systemd/system
+	mkdir -p $(DEBDIR)/DEBIAN
+	make INSTALLDIR=$(DEBDIR) PREFIX=/usr install
+	sed "s|^Version: 1.0|Version: $(VER)|g" control | sed "s|^Architecture: .*|Architecture: $(ARCH)|g" > $(DEBDIR)/DEBIAN/control
+	dpkg-deb --build --root-owner-group $(DEBDIR)
 
 clean:
-	rm -rf showorb showorb-$(VER) showorb-$(VER).deb
+	rm -rf showorb $(DEBDIR) $(DEBDIR).deb
 
