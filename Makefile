@@ -33,6 +33,7 @@ deb:
 	mkdir -p $(DEBDIR)/DEBIAN
 	make INSTALLDIR=$(DEBDIR) PREFIX=/usr install
 	sed "s|^Version: 1.0|Version: $(VER)|g" control | sed "s|^Architecture: .*|Architecture: $(ARCH)|g" > $(DEBDIR)/DEBIAN/control
+	cp conffiles $(DEBDIR)/DEBIAN/conffiles
 	dpkg-deb --build --root-owner-group $(DEBDIR)
 
 clean:
