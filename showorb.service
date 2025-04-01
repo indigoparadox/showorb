@@ -1,0 +1,13 @@
+[Unit]
+Description=PalmOS Orbit LCD emulator to MQTT bridge
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+

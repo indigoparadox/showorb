@@ -50,7 +50,7 @@ int g_weather_cloud_icon = 0;
 int g_weather_rain_icon = 0;
 
 char display_str[DISPLAY_STR_SZ];
-char g_cfg_path[CONFIG_PATH_SZ + 1] = "show.conf";
+char g_cfg_path[CONFIG_PATH_SZ + 1] = "/etc/showorb.conf";
 
 #define write_check( str, sz ) \
    if( sz != write( g_ser_fd, str, sz ) ) { \

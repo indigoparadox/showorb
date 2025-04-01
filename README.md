@@ -4,6 +4,8 @@ Rough daemon for displaying MQTT data on an Orbit LCD.
 
 This can be useful when combined with [PalmOrb LCD emulator](https://palmorb.sourceforge.net/).
 
+Can be installed with `make ; make install`.
+
 ## Configuration
 
 ### mqtt

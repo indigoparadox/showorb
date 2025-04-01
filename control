@@ -1,0 +1,7 @@
+Package: showorb
+Version: 1.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: indigoparadox <indigo.repo@interfinitydynamics.info>
+Description: PalmOS Orbit LCD emulator to MQTT bridge
