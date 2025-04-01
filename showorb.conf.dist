@@ -13,10 +13,10 @@ baud=115200
 display=$T $FF $D% $W
 
 [font]
-icon=icons/sun.bmp
-icon=icons/cloud.bmp
-icon=icons/rain.bmp
-icon=icons/moon.bmp
+icon=/usr/share/showorb/icons/sun.bmp
+icon=/usr/share/showorb/icons/cloud.bmp
+icon=/usr/share/showorb/icons/rain.bmp
+icon=/usr/share/showorb/icons/moon.bmp
 
 [weather]
 sun_icon=1

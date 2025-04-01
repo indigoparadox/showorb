@@ -18,6 +18,8 @@ showorb: show.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
 install: showorb
+	mkdir -p $(INSTALLDIR)$(PREFIX)/share/showorb/icons
+	install icons/* $(INSTALLDIR)$(PREFIX)/share/showorb/icons
 	install -s showorb $(INSTALLDIR)$(PREFIX)/bin/showorb
 	install -b showorb.conf.dist $(INSTALLDIR)$(ETC)/showorb.conf
 	if [ "$(SYSTEMD)" != "" ]; then sed "s|^ExecStart=|ExecStart=$(PREFIX)/bin/showorb|g" showorb.service > $(INSTALLDIR)$(SYSTEMD)/showorb.service; fi
